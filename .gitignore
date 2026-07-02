@@ -1,0 +1,18 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# ffmpeg 執行檔(體積過大,請依 README 指示自行下載)
+tools/
+
+# 使用者的輸入影片與產出結果(可能含版權內容,不應公開)
+source/
+output/
+
+# Whisper 模型快取(若曾指向專案內)
+models/
+
+# 作業系統雜項
+.DS_Store
+Thumbs.db
