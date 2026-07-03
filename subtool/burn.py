@@ -8,7 +8,19 @@ from pathlib import Path
 
 from .ffmpeg_utils import find_ffmpeg, escape_filter_path, is_audio_only
 
-FONT = "Microsoft JhengHei"  # Windows 內建繁中字型(微軟正黑體)
+DEFAULT_FONT = "Microsoft JhengHei"  # Windows 內建繁中字型(微軟正黑體)
+
+# 位置對應 ASS Alignment(numpad 方位):2=下置中,8=上置中
+POSITION_ALIGNMENT = {"bottom": 2, "top": 8}
+
+
+def _to_ass_color(hex_color: str) -> str:
+    """將 RRGGBB(如 'FFFFFF'、'#FFFF00')轉成 ffmpeg ASS 樣式用的 &H00BBGGRR。"""
+    h = hex_color.strip().lstrip("#")
+    if len(h) != 6:
+        raise ValueError(f"顏色格式錯誤,請用 6 碼十六進位(如 FFFFFF): {hex_color}")
+    r, g, b = h[0:2], h[2:4], h[4:6]
+    return f"&H00{b}{g}{r}"
 
 
 def burn_subtitles(
@@ -16,13 +28,26 @@ def burn_subtitles(
     srt_path: str,
     output_dir: str,
     font_size: int = 22,
+    font: str = DEFAULT_FONT,
+    font_color: str = "FFFFFF",
+    position: str = "bottom",
+    bold: bool = False,
 ) -> str:
     ffmpeg = find_ffmpeg()
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
     out_path = str(out / f"{Path(input_path).stem}.zh-TW.mp4")
 
-    style = f"FontName={FONT},FontSize={font_size},OutlineColour=&H80000000,BorderStyle=1,Outline=1,Shadow=1"
+    if position not in POSITION_ALIGNMENT:
+        raise ValueError(f"position 只能是 {list(POSITION_ALIGNMENT)},收到: {position}")
+
+    style = (
+        f"FontName={font},FontSize={font_size},"
+        f"PrimaryColour={_to_ass_color(font_color)},"
+        f"OutlineColour=&H80000000,BorderStyle=1,Outline=1,Shadow=1,"
+        f"Bold={-1 if bold else 0},"
+        f"Alignment={POSITION_ALIGNMENT[position]}"
+    )
     sub_filter = f"subtitles='{escape_filter_path(srt_path)}':force_style='{style}'"
 
     if is_audio_only(input_path):

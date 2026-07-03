@@ -66,6 +66,16 @@ py -3.12 -m venv .venv
 | `--steps` | 要執行的步驟,逗號分隔 | 全部 |
 | `--output-dir` | 輸出資料夾 | `output` |
 | `--font-size` | 燒錄字幕的字級 | `22` |
+| `--font` | 燒錄字幕的字型名稱(需系統已安裝該字型) | `Microsoft JhengHei` |
+| `--font-color` | 燒錄字幕的顏色,6 碼十六進位色碼(如 `FFFF00` 為黃色) | `FFFFFF`(白色) |
+| `--position` | 燒錄字幕的位置:`top` / `bottom` | `bottom` |
+| `--bold` | 加上此旗標讓字幕變粗體 | 不加粗 |
+
+範例:黃色粗體字幕、字級 28、顯示在畫面上方
+
+```powershell
+.venv\Scripts\python main.py demo.mp4 --font-color FFFF00 --bold --font-size 28 --position top
+```
 
 ### 翻譯引擎說明
 
@@ -85,6 +95,32 @@ py -3.12 -m venv .venv
 | `demo.zh-TW.srt` | 繁體中文字幕 |
 | `demo.zh-TW.txt` | 繁體中文純文字 |
 | `demo.zh-TW.mp4` | 已燒錄繁中字幕的影片 |
+
+## 修正錯誤的字幕內容
+
+Whisper 辨識或翻譯偶爾會出錯(聽錯字、翻譯不通順)。`output/` 資料夾裡的字幕檔就是**純文字檔**,可以直接編輯修正,不需要重新跑整個流程。
+
+1. 用文字編輯器(記事本、VS Code 皆可)打開 `output/影片名.zh-TW.srt`,內容格式如下:
+
+   ```
+   2
+   00:00:08,480 --> 00:00:16,640
+   人工智慧使這個過程變得非常簡單。感謝您的觀看，我們下次再見。
+   ```
+
+   數字下一行是**時間軸**(`開始 --> 結束`),再下一行才是字幕文字。找到涵蓋你要修正時間點的那一段,直接改文字、存檔。
+
+2. 只重新執行燒錄步驟,不用重跑辨識與翻譯:
+
+   ```powershell
+   .venv\Scripts\python main.py demo.mp4 --steps burn
+   ```
+
+   這會直接讀取你剛剛手動修正的 `demo.zh-TW.srt` 重新燒錄,速度比整套重跑快很多。
+
+> 如果錯字是**辨識階段**聽錯(原文就錯了),要修正的是 `demo.srt`,改完後執行 `--steps translate,burn` 讓翻譯跟著重新產生;如果只是**翻譯用詞**不通順、原文沒問題,直接改 `demo.zh-TW.srt` 再 `--steps burn` 即可。
+>
+> 想要有時間軸拖拉介面而不是純文字編輯,可以用免費的 [Aegisub](http://www.aegisub.org/) 或 [Subtitle Edit](https://www.nikse.dk/subtitleedit) 開啟 SRT 檔案。
 
 ## 專案結構
 

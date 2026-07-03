@@ -10,6 +10,10 @@
   --steps  transcribe,translate,burn          要執行的步驟 (預設全部)
   --output-dir <dir>                          輸出資料夾 (預設 output)
   --font-size <n>                             燒錄字幕字級 (預設 22)
+  --font <name>                                燒錄字幕字型 (預設 Microsoft JhengHei)
+  --font-color <hex>                           燒錄字幕顏色,6碼十六進位 (預設 FFFFFF 白色)
+  --position top|bottom                        燒錄字幕位置 (預設 bottom)
+  --bold                                       燒錄字幕是否加粗
 """
 import argparse
 import sys
@@ -31,6 +35,10 @@ def main() -> int:
     parser.add_argument("--steps", default="transcribe,translate,burn")
     parser.add_argument("--output-dir", default="output")
     parser.add_argument("--font-size", type=int, default=22)
+    parser.add_argument("--font", default="Microsoft JhengHei")
+    parser.add_argument("--font-color", default="FFFFFF")
+    parser.add_argument("--position", default="bottom", choices=["top", "bottom"])
+    parser.add_argument("--bold", action="store_true")
     args = parser.parse_args()
 
     input_path = str(Path(args.input).resolve())
@@ -58,7 +66,16 @@ def main() -> int:
         if not Path(zh_srt_path).exists():
             print(f"找不到繁中字幕 {zh_srt_path},請先執行 translate 步驟")
             return 1
-        burn_subtitles(input_path, zh_srt_path, out_dir, font_size=args.font_size)
+        burn_subtitles(
+            input_path,
+            zh_srt_path,
+            out_dir,
+            font_size=args.font_size,
+            font=args.font,
+            font_color=args.font_color,
+            position=args.position,
+            bold=args.bold,
+        )
 
     print("\n完成!輸出檔案都在", Path(out_dir).resolve())
     return 0
