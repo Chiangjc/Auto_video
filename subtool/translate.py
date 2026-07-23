@@ -101,3 +101,30 @@ def translate_srt(
     print(f"[translate] 繁中字幕: {out_path}")
     print(f"[translate] 繁中文字: {txt_path}")
     return out_path
+
+
+def build_bilingual_srt(orig_srt_path: str, zh_srt_path: str, output_dir: str) -> str:
+    """合併原文與繁中字幕,產生雙語字幕(同一句上方原文、下方繁中)。"""
+    out = Path(output_dir)
+    out.mkdir(parents=True, exist_ok=True)
+
+    orig_subs = list(srt.parse(Path(orig_srt_path).read_text(encoding="utf-8")))
+    zh_subs = list(srt.parse(Path(zh_srt_path).read_text(encoding="utf-8")))
+
+    if len(orig_subs) != len(zh_subs):
+        raise RuntimeError(
+            f"原文字幕與繁中字幕句數不一致({len(orig_subs)} vs {len(zh_subs)}),"
+            "無法合併雙語字幕(可能手動編輯時新增/刪除了某幾句)"
+        )
+
+    merged = [
+        srt.Subtitle(index=i, start=z.start, end=z.end, content=f"{o.content}\n{z.content}")
+        for i, (o, z) in enumerate(zip(orig_subs, zh_subs), start=1)
+    ]
+
+    stem = Path(zh_srt_path).stem.removesuffix(".zh-TW")
+    out_path = str(out / f"{stem}.bilingual.srt")
+    Path(out_path).write_text(srt.compose(merged), encoding="utf-8")
+
+    print(f"[translate] 雙語字幕: {out_path}")
+    return out_path

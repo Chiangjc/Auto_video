@@ -3,3 +3,9 @@ deep-translator>=1.11.4
 opencc-python-reimplemented>=0.1.7
 srt>=3.5.3
 anthropic>=0.40.0
+yt-dlp>=2024.8.6
+
+# Windows 上新版 ctranslate2/onnxruntime 會因 VC++ Redistributable 版本不相容而崩潰(存取違規),故鎖定舊版
+numpy<2
+ctranslate2==4.4.0
+onnxruntime==1.17.3
