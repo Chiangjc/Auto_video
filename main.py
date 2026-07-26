@@ -41,7 +41,7 @@ def main() -> int:
     parser.add_argument("--language", default=None)
     parser.add_argument("--steps", default="transcribe,translate,burn")
     parser.add_argument("--output-dir", default="output")
-    parser.add_argument("--font-size", type=int, default=16)
+    parser.add_argument("--font-size", type=int, default=10)
     parser.add_argument("--font", default="LXGW WenKai TC")
     parser.add_argument("--font-color", default="FFFFFF")
     parser.add_argument(

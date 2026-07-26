@@ -12,6 +12,7 @@ position 決定字幕垂直位置:top(上) / middle(約畫面 2/3 高處) / bott
 用於 vertical-pad 直式上下留黑時避免字幕擋住畫面內容)
 """
 import subprocess
+import uuid
 from pathlib import Path
 
 from .ffmpeg_utils import find_ffmpeg, escape_filter_path, is_audio_only
@@ -41,7 +42,7 @@ _POSITION_STYLE = {
     "top": (6, 10),
     "middle": (2, 96),
     "bottom": (2, 10),
-    "2/3": (2, 70),
+    "2/3": (2, 75),
 }
 
 VERTICAL_W, VERTICAL_H = 1080, 1920
@@ -59,19 +60,33 @@ def _to_ass_color(hex_color: str) -> str:
     return f"&H00{b}{g}{r}"
 
 
-def _build_video_filter(orientation: str, sub_filter: str) -> str:
-    """依 orientation 在 subtitles 濾鏡前加上縮放/裁切/留黑,順序要放在燒字幕之前。"""
+def _build_video_filter(orientation: str, filters: list[str]) -> str:
+    """依 orientation 在最前面加上縮放/裁切/留黑,後面接上其餘濾鏡(字幕、標題等)。
+    縮放/裁切一定要放最前面,確保字幕、標題是疊在轉換後的最終畫面上。
+    """
+    chain = list(filters)
     if orientation == "vertical-fill":
-        return (
-            f"scale={VERTICAL_W}:{VERTICAL_H}:force_original_aspect_ratio=increase,"
-            f"crop={VERTICAL_W}:{VERTICAL_H},{sub_filter}"
-        )
-    if orientation == "vertical-pad":
-        return (
-            f"scale={VERTICAL_W}:{VERTICAL_H}:force_original_aspect_ratio=decrease,"
-            f"pad={VERTICAL_W}:{VERTICAL_H}:(ow-iw)/2:(oh-ih)/2:color=black,{sub_filter}"
-        )
-    return sub_filter
+        chain.insert(0, f"scale={VERTICAL_W}:{VERTICAL_H}:force_original_aspect_ratio=increase,crop={VERTICAL_W}:{VERTICAL_H}")
+    elif orientation == "vertical-pad":
+        chain.insert(0, f"scale={VERTICAL_W}:{VERTICAL_H}:force_original_aspect_ratio=decrease,pad={VERTICAL_W}:{VERTICAL_H}:(ow-iw)/2:(oh-ih)/2:color=black")
+    return ",".join(chain)
+
+
+def _title_filter(title: str, title_font_file: str, textfile_path: Path) -> str:
+    """組出疊標題文字用的 drawtext 濾鏡。標題固定貼在畫面約 1/3 高、水平置中。
+
+    用 textfile= 讀取文字檔而不是把文字直接寫進濾鏡字串,是為了避開使用者輸入裡
+    冒號、單引號這類字元把濾鏡字串解析搞壞的問題。
+    """
+    if not Path(title_font_file).exists():
+        raise ValueError(f"找不到標題字型檔: {title_font_file}")
+    textfile_path.write_text(title, encoding="utf-8")
+    return (
+        f"drawtext=fontfile='{escape_filter_path(title_font_file)}':"
+        f"textfile='{escape_filter_path(str(textfile_path))}':"
+        "fontcolor=white:fontsize=64:box=1:boxcolor=black@0.5:boxborderw=12:"
+        "x=(w-text_w)/2:y=h/4-text_h/2"
+    )
 
 
 def burn_subtitles(
@@ -85,7 +100,13 @@ def burn_subtitles(
     bold: bool = False,
     orientation: str = "horizontal",
     bilingual: bool = False,
+    title: str | None = None,
+    title_font_file: str | None = None,
 ) -> str:
+    """title 不為 None 時,會在畫面約 1/3 高疊一行標題文字(跟燒字幕同一次編碼完成)。
+    加標題時必須同時提供 title_font_file(這個 ffmpeg 版本的 drawtext 沒有 fontconfig,
+    無法只給字型名稱,一定要指到實際字型檔路徑)。
+    """
     ffmpeg = find_ffmpeg()
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -94,12 +115,16 @@ def burn_subtitles(
         raise ValueError(f"position 只能是 {list(POSITIONS)},收到: {position}")
     if orientation not in ORIENTATIONS:
         raise ValueError(f"orientation 只能是 {list(ORIENTATIONS)},收到: {orientation}")
+    if title and not title_font_file:
+        raise ValueError("有指定 title 時必須同時提供 title_font_file")
 
     suffix_parts = []
     if orientation != "horizontal":
         suffix_parts.append(orientation)
     if bilingual:
         suffix_parts.append("bilingual")
+    if title:
+        suffix_parts.append("title")
     suffix = ("." + ".".join(suffix_parts)) if suffix_parts else ""
     out_path = str(out / f"{Path(input_path).stem}.zh-TW{suffix}.mp4")
 
@@ -113,34 +138,42 @@ def burn_subtitles(
         f"Bold={-1 if bold else 0},"
         f"Alignment={alignment},MarginV={margin_v}"
     )
-    sub_filter = f"subtitles='{escape_filter_path(srt_path)}':force_style='{style}'"
+    filters = [f"subtitles='{escape_filter_path(srt_path)}':force_style='{style}'"]
 
-    if audio_only:
-        bg_w, bg_h = (VERTICAL_W, VERTICAL_H) if orientation != "horizontal" else (HORIZONTAL_BG_W, HORIZONTAL_BG_H)
-        cmd = [
-            ffmpeg, "-y",
-            "-f", "lavfi", "-i", f"color=c=0x1e1e2e:s={bg_w}x{bg_h}:r=25",
-            "-i", input_path,
-            "-vf", sub_filter,  # 背景已經是目標尺寸,不用再縮放/留黑
-            "-c:v", "libx264", "-preset", "fast",
-            "-c:a", "aac", "-b:a", "192k",
-            "-shortest",
-            out_path,
-        ]
-    else:
-        cmd = [
-            ffmpeg, "-y",
-            "-i", input_path,
-            "-vf", _build_video_filter(orientation, sub_filter),
-            "-c:v", "libx264", "-preset", "fast", "-crf", "20",
-            "-c:a", "copy",
-            out_path,
-        ]
+    title_textfile = out / f"_title_{uuid.uuid4().hex}.txt" if title else None
+    if title:
+        filters.append(_title_filter(title, title_font_file, title_textfile))
 
-    print(f"[burn] 執行: {' '.join(cmd)}")
-    result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
-    if result.returncode != 0:
-        raise RuntimeError(f"ffmpeg 燒錄失敗:\n{result.stderr[-2000:]}")
+    try:
+        if audio_only:
+            bg_w, bg_h = (VERTICAL_W, VERTICAL_H) if orientation != "horizontal" else (HORIZONTAL_BG_W, HORIZONTAL_BG_H)
+            cmd = [
+                ffmpeg, "-y",
+                "-f", "lavfi", "-i", f"color=c=0x1e1e2e:s={bg_w}x{bg_h}:r=25",
+                "-i", input_path,
+                "-vf", ",".join(filters),  # 背景已經是目標尺寸,不用再縮放/留黑
+                "-c:v", "libx264", "-preset", "fast",
+                "-c:a", "aac", "-b:a", "192k",
+                "-shortest",
+                out_path,
+            ]
+        else:
+            cmd = [
+                ffmpeg, "-y",
+                "-i", input_path,
+                "-vf", _build_video_filter(orientation, filters),
+                "-c:v", "libx264", "-preset", "fast", "-crf", "20",
+                "-c:a", "copy",
+                out_path,
+            ]
+
+        print(f"[burn] 執行: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+        if result.returncode != 0:
+            raise RuntimeError(f"ffmpeg 燒錄失敗:\n{result.stderr[-2000:]}")
+    finally:
+        if title_textfile:
+            title_textfile.unlink(missing_ok=True)
 
     print(f"[burn] 輸出影片: {out_path}")
     return out_path

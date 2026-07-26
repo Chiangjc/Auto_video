@@ -1,0 +1,325 @@
+<title>VideoSubtitler</title>
+<meta charset="utf-8">
+<style>
+  body { font-family: "Microsoft JhengHei", sans-serif; max-width: 1200px; margin: 24px auto; padding: 0 16px; color: #222; }
+  h1 { font-size: 20px; }
+  fieldset { border: 1px solid #ddd; border-radius: 8px; margin-bottom: 16px; padding: 12px 16px; }
+  legend { font-weight: bold; padding: 0 6px; }
+  label { display: inline-block; margin-right: 16px; margin-bottom: 6px; }
+  .row { margin-bottom: 10px; }
+  .row > label.field-label { display: block; font-weight: bold; margin-bottom: 4px; }
+  input[type=text], input[type=number], select { padding: 4px 6px; }
+  button { padding: 8px 18px; font-size: 14px; cursor: pointer; border-radius: 6px; border: 1px solid #888; background: #f5f5f5; }
+  button:hover { background: #e8e8e8; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .hidden { display: none !important; }
+  .error { color: #c0392b; margin: 10px 0; white-space: pre-wrap; }
+  .status { color: #555; margin: 10px 0; }
+  .columns { display: flex; gap: 16px; align-items: stretch; }
+  .columns > div { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+  .columns video { width: 100%; background: #000; }
+  .columns textarea { flex: 1; min-height: 480px; font-family: Consolas, monospace; font-size: 13px; padding: 8px; box-sizing: border-box; }
+  .columns h3 { margin: 4px 0; }
+</style>
+
+<h1>VideoSubtitler(本機介面)</h1>
+
+<!-- Step 1: 輸入與選項 -->
+<div id="step1">
+  <form id="prepareForm">
+    <fieldset>
+      <legend>來源</legend>
+      <div class="row">
+        <label><input type="radio" name="mode" value="url" checked> YouTube 網址</label>
+        <label><input type="radio" name="mode" value="upload"> 上傳檔案</label>
+      </div>
+      <div id="urlFields" class="row">
+        <label class="field-label">網址</label>
+        <input type="text" name="url" placeholder="https://www.youtube.com/watch?v=..." style="width:100%;box-sizing:border-box;">
+        <div style="margin-top:8px;">
+          <label>起點(秒) <input type="number" name="start" step="1" style="width:80px;"></label>
+          <label>終點(秒) <input type="number" name="end" step="1" style="width:80px;"></label>
+          <label><input type="checkbox" name="most_replayed" value="1"> 自動抓最多人重播區間</label>
+        </div>
+      </div>
+      <div id="uploadFields" class="row hidden">
+        <label class="field-label">選擇檔案(影片或音訊)</label>
+        <input type="file" name="file" accept="video/*,audio/*">
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>字幕來源與語言</legend>
+      <div class="row">
+        <label class="field-label">字幕來源(僅網址模式有效)</label>
+        <label><input type="radio" name="captions" value="auto" checked> 自動(優先用YouTube CC)</label>
+        <label><input type="radio" name="captions" value="youtube"> 一定要用YouTube CC</label>
+        <label><input type="radio" name="captions" value="whisper"> 一定要用Whisper辨識</label>
+      </div>
+      <div class="row">
+        <label class="field-label">強制指定語言(留空自動偵測)</label>
+        <input type="text" name="language" placeholder="例如 en, ja, ko, zh">
+      </div>
+      <div class="row">
+        <label class="field-label">Whisper 模型</label>
+        <select name="model">
+          <option value="tiny">tiny(最快)</option>
+          <option value="base">base</option>
+          <option value="small" selected>small(預設)</option>
+          <option value="medium">medium</option>
+          <option value="large-v3">large-v3(最準)</option>
+        </select>
+      </div>
+      <div class="row">
+        <label class="field-label">翻譯引擎</label>
+        <select name="engine">
+          <option value="auto" selected>auto(預設)</option>
+          <option value="google">google</option>
+          <option value="claude">claude</option>
+          <option value="opencc">opencc</option>
+        </select>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>輸出樣式(燒錄時套用)</legend>
+      <div class="row">
+        <label class="field-label">輸出畫面格式</label>
+        <label><input type="radio" name="orientation" value="horizontal" checked> 橫式</label>
+        <label><input type="radio" name="orientation" value="vertical-fill"> 直式滿版裁切</label>
+        <label><input type="radio" name="orientation" value="vertical-pad"> 直式上下留黑</label>
+      </div>
+      <div class="row">
+        <label class="field-label">字幕位置</label>
+        <select name="position">
+          <option value="top">top(上)</option>
+          <option value="middle">middle(約2/3高)</option>
+          <option value="bottom">bottom(下,預設)</option>
+          <option value="2/3" selected>2/3(更低,適合直式留黑)</option>
+        </select>
+      </div>
+      <div class="row">
+        <label class="field-label">字型</label>
+        <select name="fontSelect">
+          <option value="LXGW WenKai TC" selected>LXGW WenKai TC(霞鶩文楷)</option>
+          <option value="Microsoft JhengHei">Microsoft JhengHei(微軟正黑體)</option>
+          <option value="PMingLiU">新細明體</option>
+          <option value="DFKai-SB">標楷體</option>
+          <option value="Microsoft YaHei">微軟雅黑</option>
+          <option value="Mantou Sans">饅頭黑體(MantouSans-Regular)</option>
+          <option value="UoqMunThenKhung">宇文天穹(UoqMunThenKhung-Regular)</option>
+          <option value="__custom__">自訂...</option>
+        </select>
+        <input type="text" name="fontCustom" placeholder="輸入字型名稱" class="hidden" style="margin-left:8px;">
+      </div>
+      <div class="row">
+        <label>字級 <input type="number" name="font_size" value="10" style="width:60px;"></label>
+        <label>顏色 <input type="color" name="font_color" value="#ffffff"></label>
+        <label><input type="checkbox" name="bold"> 粗體</label>
+        <label><input type="checkbox" name="bilingual"> 雙語字幕(原文+繁中)</label>
+      </div>
+    </fieldset>
+
+    <button type="submit" id="prepareBtn">開始辨識與翻譯</button>
+    <span class="status" id="prepareStatus"></span>
+  </form>
+  <div class="error hidden" id="prepareError"></div>
+</div>
+
+<!-- Step 2: 校對字幕 -->
+<div id="step2" class="hidden">
+  <h2>校對字幕(修改後再燒錄)</h2>
+  <div class="columns">
+    <div>
+      <h3>影片</h3>
+      <video id="previewVideo" controls></video>
+    </div>
+    <div>
+      <h3>原文字幕</h3>
+      <textarea id="originalText"></textarea>
+    </div>
+    <div>
+      <h3>繁中字幕</h3>
+      <textarea id="zhText"></textarea>
+    </div>
+  </div>
+  <div class="row" style="margin-top:12px;">
+    <label class="field-label">只燒錄其中一段(選填,留空則燒錄整段)</label>
+    <label>起始(秒) <input type="number" id="clipStart" step="0.1" style="width:80px;"></label>
+    <label>結束(秒) <input type="number" id="clipEnd" step="0.1" style="width:80px;"></label>
+    <span id="videoDuration" style="color:#666;"></span>
+  </div>
+  <div class="row" style="margin-top:12px;">
+    <label><input type="checkbox" id="titleEnabled"> 加上標題(位置約畫面 1/3 高,字型固定為饅頭黑體)</label>
+    <div id="titleFields" class="hidden" style="margin-top:6px;">
+      <input type="text" id="titleText" placeholder="輸入標題內容" style="width:400px;">
+    </div>
+  </div>
+  <div style="margin-top:12px;">
+    <button id="burnBtn">儲存並燒錄</button>
+    <button id="cancelBtn" type="button">取消</button>
+    <span class="status" id="burnStatus"></span>
+  </div>
+  <div class="error hidden" id="burnError"></div>
+</div>
+
+<!-- Step 3: 完成 -->
+<div id="step3" class="hidden">
+  <h2>完成</h2>
+  <video id="resultVideo" controls style="max-width:100%;"></video>
+  <p id="resultPath"></p>
+  <button id="restartBtn">重新開始</button>
+</div>
+
+<script>
+const prepareForm = document.getElementById('prepareForm');
+const urlFields = document.getElementById('urlFields');
+const uploadFields = document.getElementById('uploadFields');
+const fontSelect = prepareForm.fontSelect;
+const fontCustom = prepareForm.fontCustom;
+
+document.querySelectorAll('input[name=mode]').forEach(r => {
+  r.addEventListener('change', () => {
+    const isUrl = prepareForm.mode.value === 'url';
+    urlFields.classList.toggle('hidden', !isUrl);
+    uploadFields.classList.toggle('hidden', isUrl);
+  });
+});
+
+fontSelect.addEventListener('change', () => {
+  fontCustom.classList.toggle('hidden', fontSelect.value !== '__custom__');
+});
+
+const titleEnabled = document.getElementById('titleEnabled');
+const titleFields = document.getElementById('titleFields');
+titleEnabled.addEventListener('change', () => {
+  titleFields.classList.toggle('hidden', !titleEnabled.checked);
+});
+
+let currentJobId = null;
+let currentStyle = null;
+
+function showStep(n) {
+  document.getElementById('step1').classList.toggle('hidden', n !== 1);
+  document.getElementById('step2').classList.toggle('hidden', n !== 2);
+  document.getElementById('step3').classList.toggle('hidden', n !== 3);
+}
+
+document.getElementById('previewVideo').addEventListener('loadedmetadata', function () {
+  document.getElementById('videoDuration').textContent = '影片長度: ' + this.duration.toFixed(1) + ' 秒';
+});
+
+function resetToStep1() {
+  currentJobId = null;
+  currentStyle = null;
+  prepareForm.reset();
+  urlFields.classList.remove('hidden');
+  uploadFields.classList.add('hidden');
+  fontCustom.classList.add('hidden');
+  titleEnabled.checked = false;
+  titleFields.classList.add('hidden');
+  document.getElementById('titleText').value = '';
+  showStep(1);
+}
+
+prepareForm.addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errBox = document.getElementById('prepareError');
+  const status = document.getElementById('prepareStatus');
+  const btn = document.getElementById('prepareBtn');
+  errBox.classList.add('hidden');
+  errBox.textContent = '';
+  status.textContent = '處理中,請稍候(可能需要幾分鐘)...';
+  btn.disabled = true;
+
+  const fd = new FormData(prepareForm);
+  // fontSelect/fontCustom 不是後端要的欄位名稱,轉成 font
+  const font = fontSelect.value === '__custom__' ? fontCustom.value : fontSelect.value;
+  fd.delete('fontSelect');
+  fd.delete('fontCustom');
+  fd.append('font', font);
+
+  currentStyle = {
+    font: font,
+    font_size: prepareForm.font_size.value,
+    font_color: prepareForm.font_color.value,
+    position: prepareForm.position.value,
+    bold: prepareForm.bold.checked,
+    orientation: prepareForm.orientation.value,
+    bilingual: prepareForm.bilingual.checked,
+  };
+
+  try {
+    const res = await fetch('/api/prepare', { method: 'POST', body: fd });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '發生未知錯誤');
+
+    currentJobId = data.job_id;
+    document.getElementById('previewVideo').src = data.video_url;
+    document.getElementById('originalText').value = data.original_text;
+    document.getElementById('zhText').value = data.zh_text;
+    document.getElementById('clipStart').value = '';
+    document.getElementById('clipEnd').value = '';
+    document.getElementById('videoDuration').textContent = '';
+    showStep(2);
+  } catch (err) {
+    errBox.textContent = err.message;
+    errBox.classList.remove('hidden');
+  } finally {
+    status.textContent = '';
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('burnBtn').addEventListener('click', async () => {
+  const errBox = document.getElementById('burnError');
+  const status = document.getElementById('burnStatus');
+  const btn = document.getElementById('burnBtn');
+  errBox.classList.add('hidden');
+  errBox.textContent = '';
+  status.textContent = '燒錄中,請稍候...';
+  btn.disabled = true;
+
+  const clipStart = document.getElementById('clipStart').value;
+  const clipEnd = document.getElementById('clipEnd').value;
+  const title = titleEnabled.checked ? document.getElementById('titleText').value.trim() : '';
+  if (titleEnabled.checked && !title) {
+    errBox.textContent = '已勾選加上標題,請輸入標題內容';
+    errBox.classList.remove('hidden');
+    status.textContent = '';
+    btn.disabled = false;
+    return;
+  }
+  const payload = Object.assign({
+    job_id: currentJobId,
+    original_text: document.getElementById('originalText').value,
+    zh_text: document.getElementById('zhText').value,
+    clip_start: clipStart !== '' ? clipStart : null,
+    clip_end: clipEnd !== '' ? clipEnd : null,
+    title: title,
+  }, currentStyle);
+
+  try {
+    const res = await fetch('/api/burn', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '發生未知錯誤');
+
+    document.getElementById('resultVideo').src = data.video_url;
+    document.getElementById('resultPath').textContent = '輸出檔案: ' + data.output_path;
+    showStep(3);
+  } catch (err) {
+    errBox.textContent = err.message;
+    errBox.classList.remove('hidden');
+  } finally {
+    status.textContent = '';
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('cancelBtn').addEventListener('click', resetToStep1);
+document.getElementById('restartBtn').addEventListener('click', resetToStep1);
+</script>

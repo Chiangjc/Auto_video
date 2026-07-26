@@ -1,10 +1,25 @@
 """下載步驟:給 YouTube 網址,下載影片(可指定只下載某段秒數區間),或讀取 YouTube 內建字幕(CC)。"""
 import datetime
+import subprocess
 from pathlib import Path
 
 import srt
 
 from .ffmpeg_utils import find_ffmpeg
+
+# YouTube 現在會用 JS 挑戰驗證影片連結,yt-dlp 需要一個 JS runtime(如 Deno)加上這個挑戰求解器
+# 腳本才能正確解出來;沒有的話某些影片會直接被誤判成「不存在」(實測過,不是猜的)。
+# remote_components 允許 yt-dlp 在需要時自動下載這個求解器腳本(下載一次後會快取,不會每次都重抓)。
+_REMOTE_COMPONENTS = ["ejs:github"]
+
+# Deno 裝好之後系統 PATH 有更新,但實測發現「重開終端機/VS Code」不保證會生效——Windows
+# 這類環境變數更新常常要整個登出或重開機才會真的套用到新流程,不能只靠 PATH 找 deno。
+# 所以直接把 deno.exe 的實際路徑寫死指給 yt-dlp,完全不依賴 PATH 有沒有生效。
+_DENO_EXE = str(
+    Path.home() / "AppData" / "Local" / "Microsoft" / "WinGet" / "Packages"
+    / "DenoLand.Deno_Microsoft.Winget.Source_8wekyb3d8bbwe" / "deno.exe"
+)
+_JS_RUNTIMES = {"deno": {"path": _DENO_EXE}} if Path(_DENO_EXE).exists() else None
 
 
 def is_url(text: str) -> bool:
@@ -33,7 +48,10 @@ def download_youtube(
         "outtmpl": str(out / "%(id)s.%(ext)s"),
         "ffmpeg_location": str(Path(ffmpeg_path).parent),
         "noplaylist": True,
+        "remote_components": _REMOTE_COMPONENTS,
     }
+    if _JS_RUNTIMES:
+        ydl_opts["js_runtimes"] = _JS_RUNTIMES
 
     if start is not None or end is not None:
         from yt_dlp.utils import download_range_func
@@ -72,7 +90,10 @@ def get_most_replayed_range(url: str) -> tuple[float, float] | None:
     """
     import yt_dlp
 
-    with yt_dlp.YoutubeDL({"skip_download": True, "quiet": True}) as ydl:
+    opts = {"skip_download": True, "quiet": True, "remote_components": _REMOTE_COMPONENTS}
+    if _JS_RUNTIMES:
+        opts["js_runtimes"] = _JS_RUNTIMES
+    with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
 
     heatmap = info.get("heatmap")
@@ -158,7 +179,10 @@ def download_youtube_captions(
     out = Path(output_dir)
     out.mkdir(parents=True, exist_ok=True)
 
-    with yt_dlp.YoutubeDL({"skip_download": True, "quiet": True}) as ydl:
+    opts = {"skip_download": True, "quiet": True, "remote_components": _REMOTE_COMPONENTS}
+    if _JS_RUNTIMES:
+        opts["js_runtimes"] = _JS_RUNTIMES
+    with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
 
     manual = info.get("subtitles") or {}
@@ -186,19 +210,30 @@ def download_youtube_captions(
         "subtitleslangs": [lang],
         "subtitlesformat": "vtt",
         "outtmpl": str(out / "%(id)s.%(ext)s"),
-        "ffmpeg_location": str(Path(ffmpeg_path).parent),
-        "postprocessors": [{"key": "FFmpegSubtitlesConvertor", "format": "srt"}],
+        "remote_components": _REMOTE_COMPONENTS,
     }
+    if _JS_RUNTIMES:
+        ydl_opts["js_runtimes"] = _JS_RUNTIMES
     with yt_dlp.YoutubeDL(ydl_opts) as ydl:
         ydl.extract_info(url, download=True)
 
-    downloaded = out / f"{video_id}.{lang}.srt"
-    if not downloaded.exists():
-        print(f"[download] 字幕下載後找不到檔案: {downloaded}")
+    downloaded_vtt = out / f"{video_id}.{lang}.vtt"
+    if not downloaded_vtt.exists():
+        print(f"[download] 字幕下載後找不到檔案: {downloaded_vtt}")
         return None
 
+    # 注意:不能靠 yt-dlp 的 FFmpegSubtitlesConvertor postprocessor 轉檔,
+    # 因為 skip_download=True 時 yt-dlp 根本不會跑 postprocessor(實測確認,不是猜的),
+    # 所以字幕檔會停在 .vtt,轉檔這步要自己呼叫 ffmpeg。
     srt_path = out / f"{stem}.srt"
-    downloaded.replace(srt_path)
+    result = subprocess.run(
+        [ffmpeg_path, "-y", "-i", str(downloaded_vtt), str(srt_path)],
+        capture_output=True, text=True, encoding="utf-8", errors="replace",
+    )
+    downloaded_vtt.unlink(missing_ok=True)
+    if result.returncode != 0 or not srt_path.exists():
+        print(f"[download] 字幕轉檔(vtt→srt)失敗:\n{result.stderr[-500:]}")
+        return None
 
     if start is not None or end is not None:
         _shift_and_clip_srt(str(srt_path), start, end)
