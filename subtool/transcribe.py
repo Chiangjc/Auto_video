@@ -26,6 +26,11 @@ def transcribe(
         input_path,
         beam_size=5,
         vad_filter=True,
+        # 放寬 VAD 靈敏度(預設 threshold=0.5、min_silence_duration_ms=2000):
+        # threshold 調低會讓比較小聲/不確定的片段也被判斷成語音,不會整段被當成靜音直接跳過不辨識;
+        # min_silence_duration_ms 調低則減少把連續句子誤合併成一大段的情況。
+        # 副作用是可能連帶抓進一些背景音/雜音,如果反而出現變多的雜訊句子,可以再往回調。
+        vad_parameters={"threshold": 0.35, "min_silence_duration_ms": 1000},
         language=language,
     )
     print(f"[transcribe] 偵測語言: {info.language} (信心 {info.language_probability:.2f})")
