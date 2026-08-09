@@ -1,0 +1,17 @@
+# Python
+.venv/
+__pycache__/
+*.pyc
+
+# ffmpeg 執行檔(體積過大,請依 README 指示自行下載/複製)
+tools/
+
+# 下載的影片、留言卡片、合成結果(可能含版權內容,不應公開)
+output/
+
+# 環境變數(金鑰)
+.env
+
+# 作業系統雜項
+.DS_Store
+Thumbs.db

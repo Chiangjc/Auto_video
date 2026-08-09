@@ -1,0 +1,271 @@
+<title>auto_video — YouTube 留言影片</title>
+<meta charset="utf-8">
+<style>
+  body { font-family: "Microsoft JhengHei", sans-serif; max-width: 1100px; margin: 24px auto; padding: 0 16px; color: #222; }
+  h1 { font-size: 20px; }
+  fieldset { border: 1px solid #ddd; border-radius: 8px; margin-bottom: 16px; padding: 12px 16px; }
+  legend { font-weight: bold; padding: 0 6px; }
+  label { display: inline-block; margin-right: 16px; margin-bottom: 6px; }
+  .row { margin-bottom: 10px; }
+  .row > label.field-label { display: block; font-weight: bold; margin-bottom: 4px; }
+  input[type=text], input[type=number], select, textarea { padding: 4px 6px; font-family: inherit; }
+  button { padding: 8px 18px; font-size: 14px; cursor: pointer; border-radius: 6px; border: 1px solid #888; background: #f5f5f5; }
+  button:hover { background: #e8e8e8; }
+  button:disabled { opacity: 0.5; cursor: default; }
+  .hidden { display: none !important; }
+  .error { color: #c0392b; margin: 10px 0; white-space: pre-wrap; }
+  .status { color: #555; margin: 10px 0; }
+
+  #previewVideo, #resultVideo { max-width: 480px; width: 100%; background: #000; display: block; margin-bottom: 12px; }
+
+  .comment-list { display: flex; flex-direction: column; gap: 10px; }
+  .comment-item { display: flex; gap: 12px; border: 1px solid #ddd; border-radius: 8px; padding: 10px 12px; }
+  .comment-item.excluded { opacity: 0.45; }
+  .comment-item .avatar { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; background: #ccc; flex: 0 0 auto; }
+  .comment-item .avatar-placeholder { width: 44px; height: 44px; border-radius: 50%; background: #999; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: bold; flex: 0 0 auto; }
+  .comment-item .content { flex: 1; min-width: 0; }
+  .comment-item .meta { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; font-size: 13px; color: #666; }
+  .comment-item .meta .author { font-weight: bold; color: #222; }
+  .comment-item .original { font-size: 12px; color: #888; margin-bottom: 4px; }
+  .comment-item textarea.translated { width: 100%; box-sizing: border-box; font-size: 14px; min-height: 44px; }
+</style>
+
+<h1>auto_video — YouTube 留言影片自動化</h1>
+
+<!-- Step 1: 貼網址與篩選/翻譯選項 -->
+<div id="step1">
+  <form id="prepareForm">
+    <fieldset>
+      <legend>來源</legend>
+      <div class="row">
+        <label class="field-label">YouTube 網址</label>
+        <input type="text" id="url" placeholder="https://www.youtube.com/watch?v=..." style="width:100%;box-sizing:border-box;">
+      </div>
+      <div class="row">
+        <label>下載區間起點(秒,留空則下載完整影片) <input type="number" id="start" step="1" style="width:90px;"></label>
+        <label>下載區間終點(秒) <input type="number" id="end" step="1" style="width:90px;"></label>
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>留言播放設定</legend>
+      <div class="row">
+        <label>每則顯示秒數(連續播放,無間隔) <input type="number" id="cardDuration" value="3" step="0.5" style="width:70px;"></label>
+        <label>第一則出現時間(秒) <input type="number" id="startOffset" value="1" step="0.5" style="width:70px;"></label>
+      </div>
+      <div class="row" style="color:#666;font-size:13px;">
+        會依影片長度自動算出剛好連續播完的留言則數(除不盡的零頭秒數捨棄),篩選時再多留 5 則供你挑選。
+      </div>
+    </fieldset>
+
+    <fieldset>
+      <legend>留言抓取與篩選</legend>
+      <div class="row">
+        <label>候選池上限 <input type="number" id="maxComments" value="100" style="width:80px;"></label>
+        <label>最低讚數 <input type="number" id="minLikes" value="0" style="width:80px;"></label>
+        <label>最短字數 <input type="number" id="minChars" value="5" style="width:60px;"></label>
+        <label>最長字數 <input type="number" id="maxChars" value="120" style="width:60px;"></label>
+      </div>
+      <div class="row">
+        <label class="field-label">翻譯引擎</label>
+        <select id="engine">
+          <option value="auto" selected>auto(預設)</option>
+          <option value="google">google</option>
+          <option value="claude">claude</option>
+        </select>
+      </div>
+    </fieldset>
+
+    <button type="submit" id="prepareBtn">抓取並翻譯留言</button>
+    <span class="status" id="prepareStatus"></span>
+  </form>
+  <div class="error hidden" id="prepareError"></div>
+</div>
+
+<!-- Step 2: 檢視/編輯留言,設定卡片與合成選項 -->
+<div id="step2" class="hidden">
+  <h2>檢視留言(可取消勾選或修改翻譯,再合成影片)</h2>
+  <video id="previewVideo" controls></video>
+  <p class="status" id="countHint"></p>
+
+  <div class="comment-list" id="commentList"></div>
+
+  <fieldset style="margin-top:16px;">
+    <legend>卡片與合成選項</legend>
+    <div class="row">
+      <label><input type="checkbox" id="bilingual"> 雙語卡片(翻譯下方附原文)</label>
+    </div>
+    <div class="row">
+      <label class="field-label">疊加標題(選填)</label>
+      <input type="text" id="title" style="width:100%;box-sizing:border-box;" placeholder="留空則不加標題">
+    </div>
+  </fieldset>
+
+  <div>
+    <button id="composeBtn">合成影片</button>
+    <button id="cancelBtn" type="button">重新開始</button>
+    <span class="status" id="composeStatus"></span>
+  </div>
+  <div class="error hidden" id="composeError"></div>
+</div>
+
+<!-- Step 3: 完成 -->
+<div id="step3" class="hidden">
+  <h2>完成</h2>
+  <video id="resultVideo" controls></video>
+  <p id="resultPath"></p>
+  <button id="backToEditBtn" type="button">返回上一步重新合成</button>
+  <button id="restartBtn">重新開始</button>
+</div>
+
+<script>
+let currentJobId = null;
+let currentComments = [];
+
+function showStep(n) {
+  document.getElementById('step1').classList.toggle('hidden', n !== 1);
+  document.getElementById('step2').classList.toggle('hidden', n !== 2);
+  document.getElementById('step3').classList.toggle('hidden', n !== 3);
+}
+
+function escapeHtml(s) {
+  return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function renderCommentList() {
+  const list = document.getElementById('commentList');
+  list.innerHTML = '';
+  currentComments.forEach((c, i) => {
+    const item = document.createElement('div');
+    item.className = 'comment-item';
+    item.dataset.index = i;
+
+    const avatarHtml = c.avatar_url
+      ? `<img class="avatar" src="${c.avatar_url}">`
+      : `<div class="avatar-placeholder">${escapeHtml((c.author || '?').slice(0, 1).toUpperCase())}</div>`;
+
+    item.innerHTML = `
+      ${avatarHtml}
+      <div class="content">
+        <div class="meta">
+          <label><input type="checkbox" class="selectBox" checked> 採用</label>
+          <span class="author">${escapeHtml(c.author)}</span>
+          <span>\u{1F44D} ${c.like_count}</span>
+        </div>
+        <div class="original">原文:${escapeHtml(c.text)}</div>
+        <textarea class="translated">${escapeHtml(c.text_translated)}</textarea>
+      </div>
+    `;
+    item.querySelector('.selectBox').addEventListener('change', (e) => {
+      item.classList.toggle('excluded', !e.target.checked);
+    });
+    list.appendChild(item);
+  });
+}
+
+document.getElementById('prepareForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const errBox = document.getElementById('prepareError');
+  const status = document.getElementById('prepareStatus');
+  const btn = document.getElementById('prepareBtn');
+  errBox.classList.add('hidden');
+  errBox.textContent = '';
+  status.textContent = '下載影片、抓取並翻譯留言中,請稍候(可能需要一兩分鐘)...';
+  btn.disabled = true;
+
+  const payload = {
+    url: document.getElementById('url').value.trim(),
+    start: document.getElementById('start').value,
+    end: document.getElementById('end').value,
+    card_duration: document.getElementById('cardDuration').value,
+    start_offset: document.getElementById('startOffset').value,
+    max_comments: document.getElementById('maxComments').value,
+    min_likes: document.getElementById('minLikes').value,
+    min_chars: document.getElementById('minChars').value,
+    max_chars: document.getElementById('maxChars').value,
+    engine: document.getElementById('engine').value,
+  };
+
+  try {
+    const res = await fetch('/api/prepare', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '發生未知錯誤');
+
+    currentJobId = data.job_id;
+    currentComments = data.comments;
+    document.getElementById('previewVideo').src = data.video_url;
+    document.getElementById('title').value = data.title || '';
+    document.getElementById('countHint').textContent =
+      `影片可完整連續播放 ${data.needed_count} 則留言,已篩選出 ${data.pool_count} 則候選,` +
+      `請勾選/取消至理想則數(建議保留 ${data.needed_count} 則,多勾選的部分播放到影片結尾就不會再顯示)。`;
+    renderCommentList();
+    showStep(2);
+  } catch (err) {
+    errBox.textContent = err.message;
+    errBox.classList.remove('hidden');
+  } finally {
+    status.textContent = '';
+    btn.disabled = false;
+  }
+});
+
+document.getElementById('composeBtn').addEventListener('click', async () => {
+  const errBox = document.getElementById('composeError');
+  const status = document.getElementById('composeStatus');
+  const btn = document.getElementById('composeBtn');
+  errBox.classList.add('hidden');
+  errBox.textContent = '';
+  status.textContent = '合成影片中,請稍候...';
+  btn.disabled = true;
+
+  const items = document.querySelectorAll('#commentList .comment-item');
+  const comments = Array.from(items).map((item, i) => ({
+    comment_id: currentComments[i].comment_id,
+    selected: item.querySelector('.selectBox').checked,
+    text_translated: item.querySelector('.translated').value,
+  }));
+
+  const payload = {
+    job_id: currentJobId,
+    comments: comments,
+    bilingual: document.getElementById('bilingual').checked,
+    title: document.getElementById('title').value,
+  };
+
+  try {
+    const res = await fetch('/api/compose', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || '發生未知錯誤');
+
+    document.getElementById('resultVideo').src = data.video_url;
+    document.getElementById('resultPath').textContent = '輸出檔案: ' + data.output_path;
+    showStep(3);
+  } catch (err) {
+    errBox.textContent = err.message;
+    errBox.classList.remove('hidden');
+  } finally {
+    status.textContent = '';
+    btn.disabled = false;
+  }
+});
+
+function resetToStep1() {
+  currentJobId = null;
+  currentComments = [];
+  document.getElementById('prepareForm').reset();
+  document.getElementById('countHint').textContent = '';
+  showStep(1);
+}
+
+document.getElementById('cancelBtn').addEventListener('click', resetToStep1);
+document.getElementById('restartBtn').addEventListener('click', resetToStep1);
+document.getElementById('backToEditBtn').addEventListener('click', () => showStep(2));
+</script>

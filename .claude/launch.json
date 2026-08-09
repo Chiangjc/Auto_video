@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "auto_video-webui",
+      "runtimeExecutable": ".venv\\Scripts\\python",
+      "runtimeArgs": ["webui\\app.py"],
+      "port": 5001
+    }
+  ]
+}

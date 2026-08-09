@@ -1,0 +1,140 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body {
+    margin: 0;
+    padding: 0;
+    background: transparent;
+  }
+  * { box-sizing: border-box; }
+
+  .comment-card {
+    width: 860px;
+    display: inline-flex;
+    gap: 20px;
+    padding: 28px 32px;
+    background: rgba(24, 24, 27, 0.94);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 24px;
+    font-family: "Noto Sans TC", "Microsoft JhengHei", "PingFang TC", sans-serif;
+  }
+
+  .avatar {
+    flex: 0 0 auto;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    object-fit: cover;
+    background: #3f3f46;
+  }
+
+  .avatar-placeholder {
+    flex: 0 0 auto;
+    width: 64px;
+    height: 64px;
+    border-radius: 50%;
+    background: #52525b;
+    color: #e4e4e7;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    font-weight: 600;
+  }
+
+  .body {
+    flex: 1 1 auto;
+    min-width: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .meta {
+    display: flex;
+    align-items: baseline;
+    gap: 10px;
+  }
+
+  .author {
+    color: #f4f4f5;
+    font-size: 22px;
+    font-weight: 700;
+  }
+
+  .time {
+    color: #a1a1aa;
+    font-size: 17px;
+  }
+
+  .text {
+    color: #f4f4f5;
+    font-size: 26px;
+    line-height: 1.45;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .original-text {
+    color: #a1a1aa;
+    font-size: 18px;
+    line-height: 1.4;
+    font-style: italic;
+    white-space: pre-wrap;
+    word-break: break-word;
+  }
+
+  .footer {
+    display: flex;
+    align-items: center;
+    gap: 22px;
+    margin-top: 4px;
+  }
+
+  .footer .stat {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: #d4d4d8;
+    font-size: 18px;
+  }
+
+  .footer svg {
+    width: 22px;
+    height: 22px;
+    fill: #d4d4d8;
+  }
+</style>
+</head>
+<body>
+  <div class="comment-card">
+    {% if avatar_data_uri %}
+      <img class="avatar" src="{{ avatar_data_uri }}">
+    {% else %}
+      <div class="avatar-placeholder">{{ initial }}</div>
+    {% endif %}
+    <div class="body">
+      <div class="meta">
+        <span class="author">{{ author }}</span>
+        {% if time_label %}<span class="time">{{ time_label }}</span>{% endif %}
+      </div>
+      <div class="text">{{ text }}</div>
+      {% if original_text %}
+        <div class="original-text">{{ original_text }}</div>
+      {% endif %}
+      <div class="footer">
+        <span class="stat">
+          <svg viewBox="0 0 24 24"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>
+          {{ like_count }}
+        </span>
+        <span class="stat">
+          <svg viewBox="0 0 24 24"><path d="M21.99 4c0-1.1-.89-2-1.99-2H4c-1.1 0-2 .9-2 2v12c0 1.1.9 2 2 2h14l4 4-.01-18z"/></svg>
+          回覆
+        </span>
+      </div>
+    </div>
+  </div>
+</body>
+</html>
