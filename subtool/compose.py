@@ -2,9 +2,10 @@
 
 filter_complex 串接手法比照 VideoSubtitler/subtool/burn.py 的 _FilterGraph 概念。
 
-版面配置(由上到下):
-  標題區(有標題時約 460px,沒有標題時縮到 60px)→ 正方形影片區(1080x1080,來源影片
-  置中裁切成正方形)→ 留言卡片區(影片下緣留白處,依序疊上每則留言卡片)。
+版面配置(由上到下,標題文字位置與留言卡片位置為固定值,互不相依):
+  標題文字固定貼在畫面上緣附近 → 正方形影片區(1080x1080,滿版寬,來源影片置中裁切成
+  正方形)→ 留言卡片固定貼在畫面下方。影片區塊往上移到剛好貼齊留言卡片上緣(中間留
+  CARD_GAP_BELOW_VIDEO 的間距),不會因為改變影片尺寸而擠壓到標題或留言的位置。
 """
 import subprocess
 import uuid
@@ -20,10 +21,16 @@ _DEFAULT_TITLE_FONTFILE = str(
 _FALLBACK_TITLE_FONTFILE = r"C:\Windows\Fonts\msjhbd.ttc"
 
 CANVAS_W, CANVAS_H = 1080, 1920
-VIDEO_BLOCK = 1080  # 影片置中裁切成正方形後的邊長,跟畫布同寬
-TITLE_MARGIN_WITH_TITLE = 460  # 有標題時,影片區塊上緣距畫面頂端的高度(標題放這裡)
-TITLE_MARGIN_NO_TITLE = 60  # 沒有標題時,只留一點點頂部留白
-CARD_GAP_BELOW_VIDEO = 40  # 留言卡片與影片區塊下緣的間距
+VIDEO_BLOCK = 1080  # 影片置中裁切成正方形後的邊長,滿版寬
+VIDEO_X_OFFSET = (CANVAS_W - VIDEO_BLOCK) // 2
+TITLE_MARGIN_WITH_TITLE = 520  # 有標題時,標題文字所在區塊的高度(只用來算標題文字 y 位置)
+TITLE_MARGIN_NO_TITLE = 80  # 沒有標題時,標題區塊高度(此時沒有文字,純粹當作預留頂部留白)
+CARD_GAP_BELOW_VIDEO = 10  # 留言卡片與影片區塊下緣的間距,盡量貼近影片
+# 留言卡片固定貼在畫面的絕對位置,不隨 VIDEO_BLOCK 改變而跟著移動
+# (數值取自先前版本 860px 影片時算出來的位置,維持留言在畫面上的視覺位置不變)。
+CARD_Y_WITH_TITLE = TITLE_MARGIN_WITH_TITLE + 860 + CARD_GAP_BELOW_VIDEO
+CARD_Y_NO_TITLE = TITLE_MARGIN_NO_TITLE + 860 + CARD_GAP_BELOW_VIDEO
+TITLE_BOX_H = 200  # 標題底色實心黑底的高度,滿版寬(CANVAS_W),文字置中疊在上面
 
 
 def default_title_font_file() -> str | None:
@@ -89,19 +96,26 @@ def compose_video(
         timeline.append((png, t, min(t + card_duration, duration)))
         t += card_duration + gap
 
-    top_margin = TITLE_MARGIN_WITH_TITLE if title else TITLE_MARGIN_NO_TITLE
-    card_y = top_margin + VIDEO_BLOCK + CARD_GAP_BELOW_VIDEO
+    title_margin = TITLE_MARGIN_WITH_TITLE if title else TITLE_MARGIN_NO_TITLE
+    card_y = CARD_Y_WITH_TITLE if title else CARD_Y_NO_TITLE
+
+    # 影片區塊往上移到剛好貼齊留言卡片上緣(留 CARD_GAP_BELOW_VIDEO 間距),
+    # 不受 title_margin 影響,讓標題/留言的位置維持固定,只有影片本身跟著置中裁切尺寸移動。
+    # 如果影片比留言位置容許的空間還高(貼到畫面頂端仍會超出),改成貼齊頂端,
+    # 並把留言卡片往下推到影片下緣,確保兩者一定不會重疊。
+    video_y = max(0, card_y - CARD_GAP_BELOW_VIDEO - VIDEO_BLOCK)
+    card_y = max(card_y, video_y + VIDEO_BLOCK + CARD_GAP_BELOW_VIDEO)
 
     cmd = [ffmpeg, "-y", "-i", video_path]
     for png, _, _ in timeline:
         cmd += ["-loop", "1", "-i", png]
 
     # 來源影片置中裁切成正方形(不論原本是橫式或直式,都取畫面正中間 min(iw,ih) 那塊),
-    # 縮放到跟畫布同寬,再貼進 9:16 黑色畫布、上緣留 top_margin 高度給標題。
+    # 縮放到 VIDEO_BLOCK 邊長,水平置中、貼在 video_y 高度,再貼進 9:16 黑色畫布。
     filter_parts = [
         f"[0:v]crop=min(iw\\,ih):min(iw\\,ih),"
         f"scale={VIDEO_BLOCK}:{VIDEO_BLOCK},"
-        f"pad={CANVAS_W}:{CANVAS_H}:0:{top_margin}:color=black[base]"
+        f"pad={CANVAS_W}:{CANVAS_H}:{VIDEO_X_OFFSET}:{video_y}:color=black[base]"
     ]
     cur = "base"
     for i, (_, t_start, t_end) in enumerate(timeline):
@@ -121,12 +135,20 @@ def compose_video(
             raise ValueError("找不到可用的標題字型檔,請透過 title_font_file 指定")
         title_textfile = out / f"_title_{uuid.uuid4().hex}.txt"
         title_textfile.write_text(title, encoding="utf-8")
+
+        # 標題底色改成滿版寬(CANVAS_W)、不透明的實心黑底,而不是 drawtext 自己那種
+        # 只貼合文字寬度的半透明底框,所以先畫一塊獨立的實心黑色矩形,文字再置中疊上去。
+        box_y = title_margin // 2 - TITLE_BOX_H // 2
+        box_label = "titlebox"
+        filter_parts.append(f"[{cur}]drawbox=x=0:y={box_y}:w={CANVAS_W}:h={TITLE_BOX_H}:color=black@1.0:t=fill[{box_label}]")
+        cur = box_label
+
         label = "title"
         filter_parts.append(
             f"[{cur}]drawtext=fontfile='{escape_filter_path(font_file)}':"
             f"textfile='{escape_filter_path(str(title_textfile))}':"
-            "fontcolor=white:fontsize=56:box=1:boxcolor=black@0.5:boxborderw=24:"
-            f"text_align=center:line_spacing=8:x=(w-text_w)/2:y={top_margin}/2-text_h/2[{label}]"
+            "fontcolor=white:fontsize=56:"
+            f"text_align=center:line_spacing=8:x=(w-text_w)/2:y={title_margin}/2-text_h/2[{label}]"
         )
         cur = label
 

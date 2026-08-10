@@ -21,6 +21,7 @@ load_dotenv(PROJECT_ROOT / ".env")
 
 from flask import Flask, abort, jsonify, render_template, request, send_file  # noqa: E402
 
+from subtool.audio import DEFAULT_TARGET_LUFS, normalize_audio  # noqa: E402
 from subtool.avatars import download_avatars  # noqa: E402
 from subtool.card_render import render_comment_cards  # noqa: E402
 from subtool.comments import Comment, fetch_comments  # noqa: E402
@@ -116,6 +117,8 @@ def api_prepare():
             "video_path": video_path,
             "comments": selected,
             "title": info["title"],
+            "channel": info["channel"],
+            "description": info["description"],
             "card_duration": card_duration,
             "start_offset": start_offset,
         }
@@ -140,11 +143,15 @@ def api_compose():
         if not job:
             return jsonify(error="找不到這個工作階段,請重新開始(伺服器可能已重啟)"), 400
 
-        edits = {c["comment_id"]: c for c in data.get("comments", [])}
+        by_id = {c.comment_id: c for c in job["comments"]}
         chosen: list[Comment] = []
-        for c in job["comments"]:
-            edit = edits.get(c.comment_id)
-            if not edit or not edit.get("selected", True):
+        # 依前端送來的 comments 陣列順序組出播放順序(使用者在畫面上排的順序),
+        # 不是照抓取/篩選時的原始順序,這樣才能讓使用者調整過的留言順序生效。
+        for edit in data.get("comments", []):
+            if not edit.get("selected", True):
+                continue
+            c = by_id.get(edit.get("comment_id"))
+            if not c:
                 continue
             c.text_translated = edit.get("text_translated", c.text_translated)
             chosen.append(c)
@@ -152,7 +159,8 @@ def api_compose():
         if not chosen:
             return jsonify(error="至少要選擇一則留言才能合成影片"), 400
 
-        bilingual = bool(data.get("bilingual"))
+        bilingual = bool(data.get("bilingual", True))
+        normalize = bool(data.get("normalize_audio", True))
         title = (data.get("title") or "").strip() or None
 
         card_pngs = render_comment_cards(
@@ -168,7 +176,15 @@ def api_compose():
             title=title,
         )
 
-        return jsonify(output_path=output_path, video_url=_media_url(output_path))
+        if normalize:
+            normalize_audio(output_path, target_lufs=DEFAULT_TARGET_LUFS)
+
+        return jsonify(
+            output_path=output_path,
+            video_url=_media_url(output_path),
+            channel=job["channel"],
+            description=job["description"],
+        )
     except Exception as e:
         return jsonify(error=str(e)), 500
 

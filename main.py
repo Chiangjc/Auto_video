@@ -13,10 +13,12 @@
   --engine auto|google|claude   翻譯引擎 (預設 auto)
   --start <秒>            YouTube 下載區間起點,只對本次批次所有影片套用同一區間
   --end <秒>              YouTube 下載區間終點
-  --bilingual            卡片同時顯示原文(較小字體附在翻譯下方)
+  --bilingual / --no-bilingual   卡片同時顯示原文(較小字體附在翻譯下方) (預設開啟)
   --card-duration <秒>   每則留言卡片顯示秒數,留言連續播放無間隔 (預設 3)
   --start-offset <秒>     第一則留言卡片出現的時間點 (預設 1)
   --title <文字>          疊加在影片上方的標題文字,不指定則不加標題
+  --normalize-audio / --no-normalize-audio  合成完後把音量正規化到 YouTube 標準響度 (預設開啟)
+  --target-lufs <n>      --normalize-audio 開啟時的目標響度 (預設 -14)
   --output-dir <dir>      輸出資料夾 (預設 output)
 
 留言連續播放,每則固定 --card-duration 秒,不指定 --top-n 時會依影片長度自動計算剛好
@@ -33,6 +35,7 @@ from dotenv import load_dotenv
 
 load_dotenv(Path(__file__).resolve().parent / ".env")
 
+from subtool.audio import DEFAULT_TARGET_LUFS, normalize_audio
 from subtool.avatars import download_avatars
 from subtool.card_render import render_comment_cards
 from subtool.comments import fetch_comments
@@ -98,6 +101,16 @@ def process_video(video_id: str, args, api_key: str) -> str:
         start_offset=args.start_offset,
         title=overlay_title,
     )
+
+    if args.normalize_audio:
+        normalize_audio(output_path, target_lufs=args.target_lufs)
+
+    print(f"[main] 頻道: {info['channel'] or '(未知)'}")
+    description = info["description"].strip()
+    if description:
+        preview = description if len(description) <= 300 else description[:300] + "..."
+        print(f"[main] 影片簡介:\n{preview}")
+
     return output_path
 
 
@@ -116,7 +129,10 @@ def main() -> int:
     parser.add_argument("--engine", default="auto", choices=["auto", "google", "claude"])
     parser.add_argument("--start", type=float, default=None, help="YouTube 下載區間起點(秒)")
     parser.add_argument("--end", type=float, default=None, help="YouTube 下載區間終點(秒)")
-    parser.add_argument("--bilingual", action="store_true", help="卡片同時顯示原文")
+    parser.add_argument(
+        "--bilingual", action=argparse.BooleanOptionalAction, default=True,
+        help="卡片同時顯示原文(較小字體附在翻譯下方) (預設開啟)",
+    )
     parser.add_argument("--card-duration", type=float, default=3.0)
     parser.add_argument("--start-offset", type=float, default=1.0)
     parser.add_argument("--title", default=None, help="疊加標題文字;不指定則不加標題")
@@ -124,6 +140,11 @@ def main() -> int:
         "--auto-title", action="store_true",
         help="不指定 --title 時,改用影片原始標題當作疊加標題(預設不加標題)",
     )
+    parser.add_argument(
+        "--normalize-audio", action=argparse.BooleanOptionalAction, default=True,
+        help="合成完後把音量正規化到 YouTube 標準響度 (預設開啟)",
+    )
+    parser.add_argument("--target-lufs", type=float, default=DEFAULT_TARGET_LUFS)
     parser.add_argument("--output-dir", default="output")
     args = parser.parse_args()
 

@@ -3,7 +3,7 @@
 輸入一批 YouTube `videoId`(使用者自有素材影片),自動完成:
 
 ```
-下載影片 → 抓留言 → 篩選留言 → 翻譯留言 → 下載頭像 → 產生留言卡片圖 → 合成到影片 → 批次輸出
+下載影片 → 抓留言 → 篩選留言 → 翻譯留言 → 下載頭像 → 產生留言卡片圖 → 合成到影片 → 正規化音量 → 批次輸出
 ```
 
 輸出固定 1080x1920(9:16)短影片:上方黑底標題、來源影片置中裁切成正方形、下方連續播放仿 YouTube 留言卡片樣式的圖片(黑底、頭像、帳號、時間、內文、讚數)。留言連續播放、每則固定秒數,依影片長度自動算出剛好播完的則數。
@@ -64,8 +64,8 @@ notepad .env
 # 只下載/使用影片 30~90 秒這段區間(整批影片套用同一區間)
 .venv\Scripts\python main.py --video-ids dQw4w9WgXcQ --start 30 --end 90
 
-# 常用調整:雙語卡片、每則顯示 6 秒、加標題
-.venv\Scripts\python main.py --video-ids dQw4w9WgXcQ --bilingual --card-duration 6 --title "外國人看到這個都笑瘋"
+# 常用調整:每則顯示 6 秒、加標題、關閉雙語卡片
+.venv\Scripts\python main.py --video-ids dQw4w9WgXcQ --card-duration 6 --title "外國人看到這個都笑瘋" --no-bilingual
 ```
 
 ### 常用選項
@@ -78,11 +78,13 @@ notepad .env
 | `--min-likes` | 留言讚數門檻 | 0 |
 | `--min-chars` / `--max-chars` | 留言字數範圍 | 5 / 120 |
 | `--engine` | 翻譯引擎:`auto` / `google` / `claude` | `auto` |
-| `--bilingual` | 卡片同時顯示原文(較小字體附在翻譯下方) | 關閉 |
+| `--bilingual` / `--no-bilingual` | 卡片同時顯示原文(較小字體附在翻譯下方) | 開啟 |
 | `--card-duration` | 每則留言卡片顯示秒數,留言連續播放無間隔 | 3 |
 | `--start-offset` | 第一則留言卡片出現的時間點(秒) | 1 |
 | `--title` | 疊加在影片上方的標題文字 | 無 |
 | `--auto-title` | 不指定 `--title` 時,改用影片原始標題當標題疊字 | 關閉 |
+| `--normalize-audio` / `--no-normalize-audio` | 合成完後把音量正規化到 YouTube 標準響度 | 開啟 |
+| `--target-lufs` | `--normalize-audio` 開啟時的目標響度 | -14 |
 | `--output-dir` | 輸出資料夾 | `output` |
 
 留言固定連續播放、無間隔,不指定 `--top-n` 時會依 `--card-duration` 跟影片長度自動算出剛好連續播完的則數(除不盡的零頭秒數自動捨棄),篩選時再多留 5 則候選。
@@ -107,7 +109,21 @@ output/
 
 ## 版面與播放邏輯
 
-`subtool/compose.py` 固定輸出 1080x1920(9:16):上方黑底標題區(有標題約 460px、沒標題縮到 60px)→ 來源影片置中裁切成正方形(1080x1080)→ 下方留言卡片區。留言卡片連續播放、每則固定 `card_duration` 秒、無間隔,超出影片長度的部分自動不會顯示(`needed_comment_count()` 用來事先算出剛好填滿的則數)。
+`subtool/compose.py` 固定輸出 1080x1920(9:16):上方黑底標題(滿版寬實心黑底、文字置中)→ 來源影片置中裁切成正方形(1080x1080)→ 下方留言卡片區。標題文字位置與留言卡片位置是固定值,互不相依;影片區塊會往上移到剛好貼齊留言卡片上緣、不會重疊。留言卡片連續播放、每則固定 `card_duration` 秒、無間隔,超出影片長度的部分自動不會顯示(`needed_comment_count()` 用來事先算出剛好填滿的則數)。
+
+## 音量正規化
+
+合成完成後,預設會呼叫 `subtool/audio.py` 的 `normalize_audio()` 把最終影片音量正規化到 -14 LUFS(YouTube 標準響度),直接原地覆蓋輸出檔案,不需要另外執行。用 `--no-normalize-audio`(CLI)或取消網頁介面的對應勾選可以關閉。
+
+想手動微調某支已完成影片的音量(不想重跑整條流程),可以用根目錄的 `adjust_volume.py`:
+
+```powershell
+.venv\Scripts\python adjust_volume.py output\demo.commented.mp4              # 自動正規化到 -14 LUFS
+.venv\Scripts\python adjust_volume.py output\demo.commented.mp4 --gain 8     # 直接加大 8 dB
+.venv\Scripts\python adjust_volume.py output\demo.commented.mp4 --factor 2.5 # 音量放大 2.5 倍
+```
+
+這個工具預設不會覆蓋原檔案(輸出檔名會加上 `_loud`),跟主流程「原地覆蓋」的行為不同,適合想保留原檔案比對的情境。
 
 ## 留言卡片樣式
 

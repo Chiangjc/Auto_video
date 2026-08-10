@@ -21,6 +21,9 @@
   .comment-list { display: flex; flex-direction: column; gap: 10px; }
   .comment-item { display: flex; gap: 12px; border: 1px solid #ddd; border-radius: 8px; padding: 10px 12px; }
   .comment-item.excluded { opacity: 0.45; }
+  .comment-item .order-controls { display: flex; flex-direction: column; align-items: center; gap: 2px; flex: 0 0 auto; }
+  .comment-item .order-controls button { padding: 0 8px; font-size: 12px; line-height: 18px; }
+  .comment-item .order-controls .order-num { font-size: 12px; color: #888; }
   .comment-item .avatar { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; background: #ccc; flex: 0 0 auto; }
   .comment-item .avatar-placeholder { width: 44px; height: 44px; border-radius: 50%; background: #999; color: #fff; display: flex; align-items: center; justify-content: center; font-weight: bold; flex: 0 0 auto; }
   .comment-item .content { flex: 1; min-width: 0; }
@@ -50,8 +53,8 @@
     <fieldset>
       <legend>留言播放設定</legend>
       <div class="row">
-        <label>每則顯示秒數(連續播放,無間隔) <input type="number" id="cardDuration" value="3" step="0.5" style="width:70px;"></label>
-        <label>第一則出現時間(秒) <input type="number" id="startOffset" value="1" step="0.5" style="width:70px;"></label>
+        <label>每則顯示秒數(連續播放,無間隔) <input type="number" id="cardDuration" value="4" step="0.5" style="width:70px;"></label>
+        <label>第一則出現時間(秒) <input type="number" id="startOffset" value="0" step="0.5" style="width:70px;"></label>
       </div>
       <div class="row" style="color:#666;font-size:13px;">
         會依影片長度自動算出剛好連續播完的留言則數(除不盡的零頭秒數捨棄),篩選時再多留 5 則供你挑選。
@@ -93,7 +96,8 @@
   <fieldset style="margin-top:16px;">
     <legend>卡片與合成選項</legend>
     <div class="row">
-      <label><input type="checkbox" id="bilingual"> 雙語卡片(翻譯下方附原文)</label>
+      <label><input type="checkbox" id="bilingual" checked> 雙語卡片(翻譯下方附原文)</label>
+      <label><input type="checkbox" id="normalizeAudio" checked> 自動正規化音量到 -14 LUFS(YouTube 標準)</label>
     </div>
     <div class="row">
       <label class="field-label">疊加標題(選填)</label>
@@ -114,6 +118,11 @@
   <h2>完成</h2>
   <video id="resultVideo" controls></video>
   <p id="resultPath"></p>
+  <fieldset>
+    <legend>來源頻道資訊</legend>
+    <p><strong>頻道:</strong><span id="resultChannel"></span></p>
+    <p style="white-space:pre-wrap;"><strong>影片簡介:</strong><br><span id="resultDescription"></span></p>
+  </fieldset>
   <button id="backToEditBtn" type="button">返回上一步重新合成</button>
   <button id="restartBtn">重新開始</button>
 </div>
@@ -132,19 +141,33 @@ function escapeHtml(s) {
   return (s || '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 }
 
+function refreshOrderControls() {
+  const items = document.querySelectorAll('#commentList .comment-item');
+  items.forEach((item, i) => {
+    item.querySelector('.order-num').textContent = (i + 1) + '.';
+    item.querySelector('.moveUp').disabled = (i === 0);
+    item.querySelector('.moveDown').disabled = (i === items.length - 1);
+  });
+}
+
 function renderCommentList() {
   const list = document.getElementById('commentList');
   list.innerHTML = '';
-  currentComments.forEach((c, i) => {
+  currentComments.forEach((c) => {
     const item = document.createElement('div');
     item.className = 'comment-item';
-    item.dataset.index = i;
+    item.dataset.commentId = c.comment_id;
 
     const avatarHtml = c.avatar_url
       ? `<img class="avatar" src="${c.avatar_url}">`
       : `<div class="avatar-placeholder">${escapeHtml((c.author || '?').slice(0, 1).toUpperCase())}</div>`;
 
     item.innerHTML = `
+      <div class="order-controls">
+        <span class="order-num"></span>
+        <button type="button" class="moveUp" title="往上移">▲</button>
+        <button type="button" class="moveDown" title="往下移">▼</button>
+      </div>
       ${avatarHtml}
       <div class="content">
         <div class="meta">
@@ -159,8 +182,23 @@ function renderCommentList() {
     item.querySelector('.selectBox').addEventListener('change', (e) => {
       item.classList.toggle('excluded', !e.target.checked);
     });
+    item.querySelector('.moveUp').addEventListener('click', () => {
+      const prev = item.previousElementSibling;
+      if (prev) {
+        list.insertBefore(item, prev);
+        refreshOrderControls();
+      }
+    });
+    item.querySelector('.moveDown').addEventListener('click', () => {
+      const next = item.nextElementSibling;
+      if (next) {
+        list.insertBefore(next, item);
+        refreshOrderControls();
+      }
+    });
     list.appendChild(item);
   });
+  refreshOrderControls();
 }
 
 document.getElementById('prepareForm').addEventListener('submit', async (e) => {
@@ -222,9 +260,10 @@ document.getElementById('composeBtn').addEventListener('click', async () => {
   status.textContent = '合成影片中,請稍候...';
   btn.disabled = true;
 
+  // 依畫面上目前的順序(使用者可能已用 ▲▼ 調整過)組出留言清單,合成時會照這個順序連續播放。
   const items = document.querySelectorAll('#commentList .comment-item');
-  const comments = Array.from(items).map((item, i) => ({
-    comment_id: currentComments[i].comment_id,
+  const comments = Array.from(items).map((item) => ({
+    comment_id: item.dataset.commentId,
     selected: item.querySelector('.selectBox').checked,
     text_translated: item.querySelector('.translated').value,
   }));
@@ -233,6 +272,7 @@ document.getElementById('composeBtn').addEventListener('click', async () => {
     job_id: currentJobId,
     comments: comments,
     bilingual: document.getElementById('bilingual').checked,
+    normalize_audio: document.getElementById('normalizeAudio').checked,
     title: document.getElementById('title').value,
   };
 
@@ -247,6 +287,8 @@ document.getElementById('composeBtn').addEventListener('click', async () => {
 
     document.getElementById('resultVideo').src = data.video_url;
     document.getElementById('resultPath').textContent = '輸出檔案: ' + data.output_path;
+    document.getElementById('resultChannel').textContent = data.channel || '(未知)';
+    document.getElementById('resultDescription').textContent = data.description || '(無)';
     showStep(3);
   } catch (err) {
     errBox.textContent = err.message;

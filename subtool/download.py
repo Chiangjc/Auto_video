@@ -30,13 +30,18 @@ def to_url(video_id_or_url: str) -> str:
 
 
 def _base_ydl_opts() -> dict:
+    # 不強制指定 player_client:YouTube 三不五時會對特定 client(過去是 tv/android_vr)跑
+    # DRM 或簽章實驗,寫死清單反而容易在 YouTube 改變作法後卡住(實測過:寫死
+    # ["tv","android_vr","web"] 時 tv client 撞上「這個工作階段的 DRM 實驗」,
+    # 觸發下載 403;拿掉 extractor_args 整個交給 yt-dlp 自己選,同一支影片改用預設選擇
+    # 就正常下載,而且 yt-dlp 本身會持續跟著 YouTube 的變動更新預設邏輯,比我們手動維護
+    # 的清單更耐用。
     opts = {
         "noplaylist": True,
         "remote_components": _REMOTE_COMPONENTS,
         "retries": 10,
         "fragment_retries": 10,
         "socket_timeout": 30,
-        "extractor_args": {"youtube": {"player_client": ["tv", "android_vr", "web"]}},
     }
     if _JS_RUNTIMES:
         opts["js_runtimes"] = _JS_RUNTIMES
@@ -155,11 +160,21 @@ def download_youtube(
 
 
 def fetch_video_info(video_id_or_url: str) -> dict:
-    """只讀取影片中繼資料(不下載),回傳 {id, title}。"""
+    """只讀取影片中繼資料(不下載),回傳 {id, title, channel, description}。
+
+    這裡是 yt-dlp 自己的 extract_info,不是 YouTube Data API,不會額外消耗
+    YOUTUBE_API_KEY 的每日配額(配額只有 comments.py 呼叫 commentThreads.list 時才會用到)。
+    channel/description 就是這次 extract_info 順便回傳的欄位,不需要多打一次請求。
+    """
     import yt_dlp
 
     url = to_url(video_id_or_url)
     opts = {**_base_ydl_opts(), "skip_download": True, "quiet": True}
     with yt_dlp.YoutubeDL(opts) as ydl:
         info = ydl.extract_info(url, download=False)
-    return {"id": info["id"], "title": info.get("title", info["id"])}
+    return {
+        "id": info["id"],
+        "title": info.get("title", info["id"]),
+        "channel": info.get("channel") or info.get("uploader") or "",
+        "description": info.get("description") or "",
+    }
