@@ -35,7 +35,7 @@ notepad .env
 ```
 
 - **YOUTUBE_API_KEY**(必要):到 [Google Cloud Console](https://console.cloud.google.com/) 建立專案 → 啟用「YouTube Data API v3」→ 憑證頁面建立 API 金鑰。免費配額每日 10,000 單位,`commentThreads.list` 每次呼叫僅耗 1 單位,一般批次用量很低。
-- **ANTHROPIC_API_KEY**(選填):用於 `--engine claude`(翻譯品質較佳,能處理語氣詞、表情符號、迷因梗)。未設定時 `--engine auto` 會自動退回免金鑰的 Google 翻譯。
+- `--engine claude`(翻譯品質較佳,能處理語氣詞、表情符號、迷因梗)透過本機安裝的 [Claude Code](https://docs.claude.com/claude-code) CLI(`claude -p`)執行,不需要 API 金鑰,但要先安裝並執行 `claude login` 登入。偵測不到本機 `claude` 指令時,`--engine auto` 會自動退回免登入的 Google 翻譯。
 
 ## 本機網頁介面
 

@@ -10,7 +10,8 @@
   --min-likes <n>       留言讚數門檻 (預設 0)
   --min-chars <n>       留言最短字數 (預設 5)
   --max-chars <n>       留言最長字數 (預設 120)
-  --engine auto|google|claude   翻譯引擎 (預設 auto)
+  --engine auto|google|claude   翻譯引擎 (預設 auto)。claude 透過本機 Claude Code CLI
+                                  執行,需先 `claude login`;偵測不到 CLI 時 auto 會退回 google
   --start <秒>            YouTube 下載區間起點,只對本次批次所有影片套用同一區間
   --end <秒>              YouTube 下載區間終點
   --bilingual / --no-bilingual   卡片同時顯示原文(較小字體附在翻譯下方) (預設開啟)

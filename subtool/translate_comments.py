@@ -2,46 +2,75 @@
 
 比照 VideoSubtitler/subtool/translate.py 的 auto/google/claude 引擎切換模式,
 但提示詞改成針對「YouTube 留言」設計,而非字幕逐句直譯。
+
+claude 引擎透過本機安裝的 Claude Code CLI(`claude -p`)執行翻譯,不需要
+ANTHROPIC_API_KEY,但需要先執行 `claude login` 完成登入。
 """
-import os
+import shutil
+import subprocess
 
 from .comments import Comment
 
 BATCH_SIZE = 30
 
+CLAUDE_CLI_MODEL = "claude-haiku-4-5-20251001"
+CLAUDE_CLI_TIMEOUT_SECONDS = 120
+CLAUDE_CLI_DISALLOWED_TOOLS = "Bash Read Write Edit NotebookEdit WebFetch WebSearch Agent Task"
+
 _SYSTEM_PROMPT = (
-    "你是專業的 YouTube 留言翻譯,負責把各國語言的留言翻譯成台灣人平常在網路上會打的繁體中文。"
-    "這是社群留言,不是正式文件,請自然口語、保留原本的語氣和梗,不要逐字直譯。"
-    "網路用語與語氣詞請意譯成台灣對應的說法,例如韓文「ㅋㅋㅋ」「ㅎㅎ」可譯成「哈哈哈」或「XD」,"
-    "日文「www」可譯成「笑死」或「XD」,表情符號原樣保留。"
+    "你是專業的 YouTube 留言翻譯,負責把各國語言的留言譯成通順自然的繁體中文,不要逐字直譯。"
+    "譯文的語氣要貼著原文本身的語氣走:原文認真就譯得認真,原文抱怨就譯得抱怨,"
+    "原文本來俏皮才跟著俏皮,不要每則都刻意加重網路用語或迷因梗,"
+    "也不要為了追求「道地」而讓譯文比原文更隨便、更浮誇。"
+    "表情符號原樣保留,避免中國大陸用語(如「視頻」「軟件」「信息」)。"
+    "全部使用繁體中文字,不得混入任何簡體字(例如「这」「说」「没」等)。"
     "規則:1) 保持相同編號與行數,一行一句,格式為「編號|譯文」;"
     "2) 不要合併或拆分句子;3) 只輸出譯文行,不要任何說明或多餘文字。"
 )
 
 
 def _translate_claude(texts: list[str]) -> list[str]:
-    import anthropic
+    executable = shutil.which("claude")
+    if executable is None:
+        raise RuntimeError(
+            "找不到 claude CLI,請先安裝 Claude Code(npm install -g @anthropic-ai/claude-code)"
+            "並執行 `claude login` 登入"
+        )
 
-    client = anthropic.Anthropic()
     results: list[str] = []
     for i in range(0, len(texts), BATCH_SIZE):
         batch = texts[i : i + BATCH_SIZE]
         numbered = "\n".join(f"{j + 1}|{t}" for j, t in enumerate(batch))
-        resp = client.messages.create(
-            model="claude-sonnet-5",
-            max_tokens=4000,
-            system=_SYSTEM_PROMPT,
-            messages=[{"role": "user", "content": numbered}],
-        )
-        text = next(b.text for b in resp.content if b.type == "text")
+        try:
+            process = subprocess.run(
+                [
+                    executable,
+                    "-p",
+                    "--model", CLAUDE_CLI_MODEL,
+                    "--system-prompt", _SYSTEM_PROMPT,
+                    "--disallowedTools", CLAUDE_CLI_DISALLOWED_TOOLS,
+                ],
+                input=numbered,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=CLAUDE_CLI_TIMEOUT_SECONDS,
+                shell=False,
+            )
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeError("claude cli 執行逾時") from exc
+
+        if process.returncode != 0:
+            raise RuntimeError(f"claude cli 執行失敗: {process.stderr.strip()}")
+
         mapping = {}
-        for line in text.strip().splitlines():
+        for line in process.stdout.strip().splitlines():
             if "|" in line:
                 num, _, content = line.partition("|")
                 if num.strip().isdigit():
                     mapping[int(num.strip())] = content.strip()
         results.extend(mapping.get(j + 1, batch[j]) for j in range(len(batch)))
-        print(f"[translate] claude 進度 {min(i + BATCH_SIZE, len(texts))}/{len(texts)}")
+        print(f"[translate] claude cli 進度 {min(i + BATCH_SIZE, len(texts))}/{len(texts)}")
     return results
 
 
@@ -69,7 +98,7 @@ def translate_comments(comments: list[Comment], engine: str = "auto") -> list[Co
         return comments
 
     if engine == "auto":
-        engine = "claude" if os.environ.get("ANTHROPIC_API_KEY") else "google"
+        engine = "claude" if shutil.which("claude") else "google"
         print(f"[translate] 自動選擇引擎: {engine}")
 
     texts = [c.text.replace("\n", " ") for c in comments]
